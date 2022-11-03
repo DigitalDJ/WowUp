@@ -790,6 +790,9 @@ export class AddonService {
   public async logDebugData(): Promise<void> {
     const curseProvider = this._addonProviderService.getProvider<CurseAddonV2Provider>(ADDON_PROVIDER_CURSEFORGE);
     const hubProvider = this._addonProviderService.getProvider<WowUpAddonProvider>(ADDON_PROVIDER_HUB);
+    if (hubProvider === undefined) {
+      throw new Error("hub provider not found");
+    }
 
     const clientMap = {};
     const installations = await this._warcraftInstallationService.getWowInstallationsAsync();
@@ -798,14 +801,18 @@ export class AddonService {
 
       const useSymlinkMode = await this._wowUpService.getUseSymlinkMode();
       const addonFolders = await this._warcraftService.listAddons(installation, useSymlinkMode);
+      await this._addonFingerprintService.getFingerprints(addonFolders);
 
       const curseMap = {};
       const curseScanResults = curseProvider.getScanResults(addonFolders);
       curseScanResults.forEach((sr) => (curseMap[sr.folderName] = sr.fingerprint));
 
       const hubMap = {};
-      const hubScanResults = await hubProvider.getScanResults(addonFolders);
-      hubScanResults.forEach((sr) => (hubMap[sr.folderName] = sr.fingerprint));
+      addonFolders.forEach((af) => {
+        if (af.wowUpScanResults !== undefined) {
+          hubMap[af.wowUpScanResults.folderName] = af.wowUpScanResults.fingerprint;
+        }
+      });
 
       clientMap[clientTypeName] = {
         curse: curseMap,
@@ -829,8 +836,9 @@ export class AddonService {
   }
 
   private getLatestGameVersion(tocs: Toc[]) {
-    const versions = tocs.map((toc) => toc.interface);
-    return AddonUtils.getGameVersion(_.orderBy(versions, [], "desc")[0] || "");
+    const versions = tocs.map((toc) => +toc.interface);
+    const ordered = _.orderBy(versions, [], "desc");
+    return AddonUtils.getGameVersion(ordered[0]?.toString() || "");
   }
 
   private async backupOriginalDirectories(addon: Addon): Promise<string[]> {
@@ -1626,7 +1634,17 @@ export class AddonService {
       const matchedAddonFolderNames = matchedAddonFolders.map((mf) => mf.name);
 
       matchedAddonFolders.forEach((maf) => {
+        if (maf.matchingAddon === undefined) {
+          console.warn("matching adding undefined");
+          return;
+        }
+
         const targetToc = this._tocService.getTocForGameType2(maf, installation.clientType);
+        if (targetToc === undefined) {
+          console.warn("toc file undefined", maf, installation.clientType);
+          maf.matchingAddon.warningType = AddonWarningType.TocNameMismatch;
+          return;
+        }
 
         if (!targetToc.fileName.startsWith(maf.name)) {
           console.warn("TOC NAME MISMATCH", maf.name, targetToc.fileName);
