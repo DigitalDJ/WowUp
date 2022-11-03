@@ -212,8 +212,6 @@ export class OptionsAddonSectionComponent implements OnInit, OnDestroy {
       return;
     }
 
-    wago.adRequired = accessToken === undefined || accessToken.length === 0;
-
     await this._addonProviderService.setProviderEnabled(ADDON_PROVIDER_WAGO, wago.enabled);
   }
 }
